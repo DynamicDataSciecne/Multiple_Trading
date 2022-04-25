@@ -1,0 +1,271 @@
+---
+title: "R-code for 'A Novel Algorithmic Trading Strategy Using Data driven weighted volatility forecast' (2021 Compsac Paper)"
+output:
+  html_document: default
+  pdf_document: default
+fontsize: 12pt  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The file contains the implementation of source code of the optimal weighted volatility forecast. Here, an example implementation is provided for two stocks (EWA and EWC). To get the results for others scenarios such as different two stocks (say, EWC and IGE) and multiple stocks (say, EWA, EWC and IGE), one just need to use the respective data and use the given functions. Moreover, one can easily change the value of $\delta$ and $\sigma^2_{\epsilon}$ to get the results of Table 3 in manuscript and Table 4 in supplementary file of manuscript. 
+
+# Load required packages
+```{r, message=FALSE, warning=FALSE}
+pkg_list = c('quantmod','zoo', 'tseries','aTSA', 'urca','fGarch','timeSeries','tibble',
+             'dplyr','TTR','forecast')
+# quantmod: get the quantitative financial and trading data
+# zoo: deal with irregular time series data
+# tseries: to do time series analysis and computational finance
+# aSTA: performs Engle-Granger(or EG) cointegration test
+# urca: conducts the Johansen procedure on a given data set to test multiple cointegration
+# fGarch: to modeling heterskedasticity in time series and also get the inverse and student t distribution
+# dplyr: to get lag values
+# TTR: to use "SMA" function
+
+# Function to install required packages if needed
+for (pkg in pkg_list)
+{
+  # Loading the library
+  if (!library(pkg, logical.return=TRUE, character.only=TRUE))
+    {
+        # If the library cannot be loaded, install first and then load.
+        install.packages(pkg)
+        library(pkg, character.only=TRUE)
+  }
+}
+```
+
+```{r}
+# Load all the required functions needed get the results
+source("RATS.aux.R")
+source("RATS_Training.R")
+source("RATS_Test.R")
+source("op_functions.R")
+```
+
+# Implementation of training and test functions to get the results 
+
+```{r, warning=FALSE, message=FALSE}
+# Load the required stocks to use as data-sets from Yahoo finance
+
+start.date <- '2017-2-1' # starting date of stock
+end.date <- '2020-3-15' # ending date of stock
+# Download the selected stocks from Yahoo finance
+getSymbols(c('EWA','EWC','IGE'), src = "yahoo", from = start.date, to = end.date)
+stocks <- merge(EWA = EWA[, "EWA.Adjusted"], EWC = EWC[, "EWC.Adjusted"], 
+               IGE = IGE[, "IGE.Adjusted"])
+tradeday <- nrow(stocks)
+tradeday
+
+# Splitting the data-sets into training and test sample
+train_sample <- stocks[1:532]
+test_sample <- stocks[533:784]
+
+# new set
+#train_sample <- stocks[1:700]
+#test_sample <- stocks[701:tradeday]
+```
+
+
+# Set the initial values of $\delta$ and Ve
+```{r}
+# change the initial values to get the stability analysis results in Table 3 and Table 4 
+# In Table 3 and 4, delta ranges from 0.0001 to 0.05, Ve ranges from 0.001 to 10
+delta <- 0.0001
+Ve <- 0.001
+```
+
+# Implementation of RATS_training function for two stocks
+
+```{r,warning=FALSE, message=FALSE}
+assets <- c("EWA", "EWC") # selected two assets  
+pair.stock <- merge(train_sample[, 1], train_sample[, 2], join="inner")
+colnames(pair.stock) <- assets
+
+####################################################################################################
+# Implementation of RATS_training function for two stocks
+####################################################################################################
+x <- pair.stock[, 1]
+y <- pair.stock[, 2]
+res.training22 <- RATS_training(data = pair.stock, y = y, x = x, delta = delta, Ve=Ve, 
+                              window.size = 100, L=5)
+
+res.training <- res.training22[[1]]
+res.training
+
+opt.weight <- res.training22[[2]]
+opt.weight
+
+# store the optimal value of p to use in test function
+p.optimal <- c(res.training$popt_DDVFI, res.training$popt_DDWvol, res.training$popt_KFVEI) 
+p.optimal
+
+```
+
+# Buy and hold strategy based on training sample
+```{r}
+maxx<- nrow (train_sample)
+EWA <- as.numeric(stocks [maxx, 1]) - as.numeric(stocks [101, 1]) # window size=100
+EWC <- as.numeric(stocks [maxx, 2]) - as.numeric(stocks [101, 2])
+1000*(EWA + EWC)
+```
+
+## Part of the results presented in Table 2 and 3 of manuscript based on training sample including the result of DDWvol
+
+```{r}
+res_DDVFI<- data.frame(Popt=res.training$popt_DDVFI, ASR=res.training$ASR_DDVFI, Profit=res.training$profit_DDVFI)
+res_DDWvol<- data.frame(Popt=res.training$popt_DDWvol, ASR=res.training$ASR_DDWvol, Profit=res.training$profit_DDWvol)
+res_KFVEI<- data.frame(Popt=res.training$popt_KFVEI, ASR=res.training$ASR_KFVEI, Profit=res.training$profit_KFVEI)
+res_Table2<- rbind(res_DDVFI, res_DDWvol, res_KFVEI)
+row.names(res_Table2)<- c("Robust multiple trading","DDWvol multiple trading",
+                          "Traditional multiple trading")
+res_Table2
+```
+
+
+
+# Implementation of RATS_test function for two stocks
+
+```{r,warning=FALSE, message=FALSE}
+####################################################################################################
+# Implementation of RATS_test function for two stocks
+####################################################################################################
+pair.stock <- merge(test_sample[, 1], test_sample[, 3], join="inner")
+colnames(pair.stock) <- assets
+# Plot the test sample
+plot(pair.stock, legend.loc=1)
+# Implementation of maximum informative filter algorithm for pairs trading
+x <- pair.stock[, 1]
+y <- pair.stock[, 2]
+res.test <- RATS_test(data = pair.stock, y = y, x = x, delta = delta, Ve = Ve,
+                      p.optimal =p.optimal, window.size = 40, L= 5, opt.wt = opt.weight)
+res.test
+
+# xtable::xtable(res.test[,4:9])
+
+```
+
+# Buy and hold strategy based on test sample
+```{r}
+maxx<- nrow (test_sample)
+EWA <- as.numeric(stocks [maxx, 1]) - as.numeric(stocks [41, 1]) # window size=50
+EWC <- as.numeric(stocks [maxx, 2]) - as.numeric(stocks [41, 2])
+1000*(EWA + EWC)
+```
+
+
+## Part of the results presented in supplementary of manuscript based on test sample including the result of DDWvol
+
+```{r}
+res_DDVFI<- data.frame(Popt=res.test$popt_DDVFI, ASR=res.test$ASR_DDVFI, Profit=res.test$profit_DDVFI)
+res_DDWvol<- data.frame(Popt=res.test$popt_DDWvol, ASR=res.test$ASR_DDWvol, Profit=res.test$profit_DDWvol)
+res_KFVEI<- data.frame(Popt=res.test$popt_KFVEI, ASR=res.test$ASR_KFVEI, Profit=res.test$profit_KFVEI)
+res_Table4<- rbind(res_DDVFI, res_DDWvol, res_KFVEI)
+row.names(res_Table4)<- c("Robust multiple trading", "DDWvol multiple trading", 
+                          "Traditional multiple trading")
+res_Table4
+```
+
+# Implementation of RATS_training function for three stocks
+
+```{r,warning=FALSE, message=FALSE}
+assets <- c("EWA", "EWC", "IGE")  
+three.stock <- merge(train_sample[, 1], train_sample[, 2], train_sample[, 3], join="inner")
+colnames(three.stock) <- assets
+
+####################################################################################################
+# Implementation of RATS_training function for three stocks
+####################################################################################################
+x <- three.stock[, 1:2]
+y <- three.stock[, 3]
+x$intercept <- rep(1, nrow(x)) # create intercept
+
+res.training22 <- RATS_training(data = three.stock, y = y, x = x, delta = delta, Ve=Ve, 
+                              window.size = 100)
+
+res.training <- res.training22[[1]]
+res.training
+
+opt.weight <- res.training22[[2]]
+opt.weight
+
+# store the optimal value of p to use in test function
+p.optimal <- c(res.training$popt_DDVFI, res.training$popt_DDWvol, res.training$popt_KFVEI) 
+p.optimal
+
+```
+
+
+# Buy and hold strategy based on training sample
+```{r}
+maxx<- nrow (train_sample)
+EWA <- as.numeric(stocks [maxx, 1]) - as.numeric(stocks [101, 1]) # window size=100
+EWC <- as.numeric(stocks [maxx, 2]) - as.numeric(stocks [101, 2])
+IGE <- as.numeric(stocks [maxx, 3]) - as.numeric(stocks [101, 3])
+1000*(EWA + EWC + IGE)
+```
+
+
+## Part of the results presented in Table 2 and 3 of manuscript based on training sample including the result of DDWvol
+
+```{r}
+res_DDVFI<- data.frame(Popt=res.training$popt_DDVFI, ASR=res.training$ASR_DDVFI, Profit=res.training$profit_DDVFI)
+res_DDWvol<- data.frame(Popt=res.training$popt_DDWvol, ASR=res.training$ASR_DDWvol, Profit=res.training$profit_DDWvol)
+res_KFVEI<- data.frame(Popt=res.training$popt_KFVEI, ASR=res.training$ASR_KFVEI, Profit=res.training$profit_KFVEI)
+res_Table2<- rbind(res_DDVFI, res_DDWvol, res_KFVEI)
+row.names(res_Table2)<- c("Robust multiple trading","DDWvol multiple trading",
+                          "Traditional multiple trading")
+res_Table2
+```
+
+
+# Implementation of RATS_test function for three stocks
+
+```{r,warning=FALSE, message=FALSE}
+####################################################################################################
+# Implementation of RATS_test function for three stocks
+####################################################################################################
+three.stock <- merge(test_sample[, 1], test_sample[, 2], test_sample[, 3], join="inner")
+colnames(three.stock) <- assets
+# Plot the test sample
+plot(three.stock, legend.loc=1)
+# Implementation of maximum informative filter algorithm for pairs trading
+x <- three.stock[, 1:2]
+y <- three.stock[, 3]
+x$intercept <- rep(1, nrow(x)) # create intercept
+
+res.test <- RATS_test(data = three.stock, y = y, x = x, delta = delta, Ve = Ve,
+                      p.optimal =p.optimal, window.size = 40, L= 5, opt.wt = opt.weight)
+res.test
+
+```
+
+
+
+# Buy and hold strategy based on test sample
+```{r}
+maxx<- nrow (test_sample)
+EWA <- as.numeric(stocks [maxx, 1]) - as.numeric(stocks [41, 1]) # window size=40
+EWC <- as.numeric(stocks [maxx, 2]) - as.numeric(stocks [41, 2])
+IGE <- as.numeric(stocks [maxx, 3]) - as.numeric(stocks [41, 3])
+1000*(EWA + EWC + IGE)
+```
+
+
+## Part of the results presented in supplementary of manuscript based on test sample including the result of DDWvol
+
+```{r}
+res_DDVFI<- data.frame(Popt=res.test$popt_DDVFI, ASR=res.test$ASR_DDVFI, Profit=res.test$profit_DDVFI)
+res_DDWvol<- data.frame(Popt=res.test$popt_DDWvol, ASR=res.test$ASR_DDWvol, Profit=res.test$profit_DDWvol)
+res_KFVEI<- data.frame(Popt=res.test$popt_KFVEI, ASR=res.test$ASR_KFVEI, Profit=res.test$profit_KFVEI)
+res_Table4<- rbind(res_DDVFI, res_DDWvol, res_KFVEI)
+row.names(res_Table4)<- c("Robust multiple trading", "DDWvol multiple trading", 
+                          "Traditional multiple trading")
+res_Table4
+```
+
+
+
