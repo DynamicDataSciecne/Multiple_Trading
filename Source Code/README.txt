@@ -1,6 +1,6 @@
 ###############################################################################################################
-Title: A Novel Algorithmic Trading Strategy Using Data-Driven Innovation Volatility
-Date: June 8, 2020
+Title: A Novel Algorithmic Multiple Trading Strategy Using Data-Driven Random Weights Innovation Volatility
+Date: June, 2020
 ###############################################################################################################
 
 Software: R software, version: r/3.3.1
